@@ -8,21 +8,33 @@
 #include "libADC.hpp"
 #include "uart_buffer.hpp"
 
+#define HIT 1
+#define NOACTION 0
+#define STAND -1
+
 typedef struct {
   int value;
   bool out;
-  char suit[10];
-  char rank[10];
+  char suit[9];
+  char rank[3];
 }Card;
 
-void createDeck(Card deck[]){
-	char suits[4][10] = {{"Hearts"}, {"Diamonds"}, {"Clubs"}, {"Spades"}};
-	char ranks[13][10] = {{"2"}, {"3"}, {"4"}, {"5"}, {"6"}, {"7"}, {"8"}, {"9"}, {"10"}, {"Jack"}, {"Queen"}, {"King"}, {"Ace"}};
+typedef struct{
+	int size = 0;
+	int value = 0;
+	int aces = 0;
+	Card cards[8] ={0};
+}Hand;
+
+void createDeck(Card* deck){
+	char suits[4][9] = {{"Hearts"}, {"Diamonds"}, {"Clubs"}, {"Spades"}};
+	char ranks[13][3] = {{"2"}, {"3"}, {"4"}, {"5"}, {"6"}, {"7"}, {"8"}, {"9"}, {"10"}, {"J"}, {"Q"}, {"K"}, {"A"}};
 
   	int index = 0;
   	for(int i = 0; i < 4; ++i){
     	for(int j = 0; j < 13; ++j){
       		strcpy(deck[index].suit, suits[i]);
+			// sprintf(deck[index].rank, "%s\0", ranks[j]);
       		strcpy(deck[index].rank, ranks[j]);
 			deck[index].out = false;
 
@@ -58,21 +70,31 @@ Card dealCard(Card deck[]){
 	}
 }
 
-void showCardDetails(Card card){
-	char aux[64];
-	sprintf(aux,"%s of %s has value %d and out: %d\n",card.rank ,card.suit, card.value, card.out);
+void showCardDetails(Card* card){
+	char aux[48];
+	sprintf(aux,"%s of %s has value %d and out: %d\n\0" ,card->rank ,card->suit, card->value, card->out);
 	
 	uart_send_array((uint8_t*) aux, strlen(aux));
-	
-	// uart_send_array((uint8_t*) card.rank, strlen(card.rank));
-	// uart_send_array((uint8_t*) card.suit, strlen(card.suit));
-	// sprintf(aux,"%d_%d", card.out, card.value);
-	// uart_send_byte('\n');
 
 	_delay_ms(10);
 }
 
-void showPlayerHand(Card hand[]);
+void showCards(Card hand[]){
+	for(int i = 0; i < 8 && hand[i].out == 1; ++i){
+		showCardDetails(&hand[i]);
+	}
+}
+
+void updateScoreAndAces(Hand* hand, Card* card) {
+    hand->value += card->value;
+    if (card->rank[0] == 'A') {
+        hand->aces++;
+    }
+    while (hand->value > 21 && hand->aces > 0) {
+        hand->value -= 10;
+        hand->aces--;
+    }
+}
 
 int main(void){ 	
 	LCD_Initalize();
@@ -80,149 +102,172 @@ int main(void){
 	ADC_Init();
 	sei();
 
+	// LCD_WriteCommand(HD44780_CLEAR);
+	// _delay_ms(10);
+
 	int seed = generateRandom();
 	srand(seed);
 
 	Card deck[52];
 	createDeck(deck);
 
-	// Card card = dealCard(deck);
-	// uart_send_array((uint8_t*)"Please enter a seed to start the game: ",40);
-	
+	Hand player_hand;
+	Hand dealer_hand;
+	player_hand.size = 0;
+	player_hand.value = 0;
+	dealer_hand.size = 0;
+	dealer_hand.value = 0;
 	char buf[16];
 
-	// variables
 	uint16_t raw, rawOld;
-	bool updateScreen;
+	bool updateScreen = 1;
 	
-	char state;
-	uint8_t data = 0;
-	int level = 1;
-	Card player_hand[10];
-	Card dealer_hand[10];
-
 	bool dealtCards = false;
+	bool gameOver = false;
+	int action = NOACTION;
 
 	while (1){
+
+		if(gameOver == true){
+			if(player_hand.value > dealer_hand.value || dealer_hand.value > 21){
+				//win
+				strcpy(buf, "You won.     \0");
+				uart_send_array((uint8_t*) buf, strlen(buf));
+			
+			}else if(player_hand.value == dealer_hand.value){
+				//draw
+				strcpy(buf, "It's a tie.    \0");
+				uart_send_array((uint8_t*) buf, strlen(buf));
+			}else{	
+				//lose
+				strcpy(buf, "You lost.     \0");
+				uart_send_array((uint8_t*) buf, strlen(buf));
+			}
+			// gameOver = false;
+			uart_send_byte('\n');
+			updateScreen = 1;
+		}
+
+		if(player_hand.value >21){
+			gameOver = true;
+			strcpy(buf, "You got busted.\0");
+			uart_send_array((uint8_t*) buf, strlen(buf));
+			uart_send_byte('\n');
+
+			player_hand.value = 0;
+		}
+
 		if(dealtCards == false){
 			for(int i = 0; i < 2; ++i){
-				player_hand[i] = dealCard(deck);
-				dealer_hand[i] = dealCard(deck);
-				// showCardDetails(hand[i]);
+				Card card1 = dealCard(deck);
+				Card card2 = dealCard(deck);
 				
-			}
-				showPlayerHand(player_hand);
-				// showCardDetails(card);
-				// showCardDetails(card2);
+				player_hand.cards[i] = card1;
+				dealer_hand.cards[i] = card2;
 
+				updateScoreAndAces(&player_hand, &card1);
+				updateScoreAndAces(&dealer_hand, &card2);
+				}
+			player_hand.size += 2;
+			dealer_hand.size += 2;
+
+			// showCards(player_hand.cards);
+			uart_send_array((uint8_t*) "Dealer has :\n? of ? has value ? and out: ?\n\0", strlen("Dealer has :\n? of ? has value ? and out: ?\n\0"));
+			char aux[48];
+			sprintf(aux,"%s of %s has value %d and out: %d\n\0" , dealer_hand.cards[1].rank, dealer_hand.cards[1].suit, dealer_hand.cards[1].value, dealer_hand.cards[1].out);
+				
+			uart_send_array((uint8_t*) aux, strlen(aux));
+			
+				
 			dealtCards = true;
+		}
+
+		if(action != NOACTION){
+			if (action == HIT){
+
+				Card card = dealCard(deck);
+				player_hand.cards[player_hand.size++] = card;
+
+				updateScoreAndAces(&player_hand, &card);
+
+				updateScreen = 1;
+				action = NOACTION;
+				// showCards(player_hand.cards);
+
+			}else if(action == STAND){
+
+				while (dealer_hand.value < 17){
+					Card card = dealCard(deck);
+					dealer_hand.cards[dealer_hand.size++] = card;
+					updateScoreAndAces(&dealer_hand, &card);
+
+				}
+					char aux[64];
+					sprintf(aux ,"Dealers score: %d and size: %d\n\0", dealer_hand.value, dealer_hand.size);
+					uart_send_array((uint8_t*) aux, strlen(aux));
+					showCards(dealer_hand.cards);
+
+					action = NOACTION;
+					gameOver = true;
+			}
 		}	
 
 		
-		
-		// -----------
-		// PART I - read sign from UART
-		// -----------
-	// 	if(uart_read_count()>0){
-	// 		data = uart_read();
-	// 		uart_send_byte(data);
 
-	// 		if (data=='R'||data=='L'||data=='U'||data=='D'){
-	// 			uart_send_string((uint8_t*)" < COMMAND\r\n");
-	// 			state = data;
-	// 			updateScreen = 1;
-	// 		}
-    //   else if(data == 'F'){
-    //       // flushSerial();
-    //   }
-	// 	  else {
-	// 			uart_send_string((uint8_t*)" < unknown sign\r\n");
-	// 		}
-	// 	}
-
-
-
-		// -----------
-		// PART II - MEASURE ADC
-		// -----------
 		raw = ADC_conversion();
 
-		
-		// check if ADC measurement have changed
+		// Check if ADC measurement have changed
 		if((raw - rawOld) < 50){
 			rawOld = raw;
 		}
 		else {
-			/*
-				RIGHT		0
-				UP 			131
-				DOWN		306
-				LEFT		480
-				SELECT		721
-				released 	1023
-			*/
-			// if(setSeed == false && raw < 1020){
-
-				
-			// seed = raw;
-			// setSeed = true;
-			// srand(seed);
-			// }
-			// RIGHT
 			if (raw < 100){
-				state = 'R';
+				// STAND on R
+				action = STAND;
 				updateScreen = 1;			
-			}
-			// UP
-			else if (raw < 250) {
-				state = 'U';
-				updateScreen = 1;			
-			}
-			// DOWN
-			else if (raw < 350) {
-				state = 'D';
-				updateScreen = 1;
-			}
-			// LEFT
-			else if (raw < 500) {
-				state = 'L';
+			}else if (raw < 500) {
+				// HIT on L
+				action = HIT;
 				updateScreen = 1;
 			}			
 		}
 
 		if (updateScreen == 1){
-			LCD_WriteCommand(HD44780_CLEAR);
-			_delay_ms(10);
+
+			// LCD_WriteCommand(HD44780_CLEAR);
+			// _delay_ms(10);
+
 			LCD_GoTo(0,0);
-			
-			sprintf(buf, "Hand:");
-			int score = 0;
-			int len = strlen(buf); // Track the current length of the string in buf
+			if(!gameOver){
+				sprintf(buf, ">\0");
 
-			for (int i = 0; i < 1 && player_hand[i].value != 0; ++i) {
-				// score += player_hand[i].value;
-				score += 1;
-				// Append the rank's first character to buf without overwriting
-				sprintf(buf + len, " %c\0", player_hand[i].rank[0]);
-				len = strlen(buf); // Update the length after appending
+				int len = strlen(buf);
+
+				for (int i = 0; i < player_hand.size ; ++i) {
+					if(player_hand.cards[i].rank[0] == '1')
+						sprintf(buf + len , " 10\0");
+					else
+						sprintf(buf + len, " %c\0", player_hand.cards[i].rank[0]);
+
+					len = strlen(buf); 
+				}
+				buf[16]= '\0';
+				LCD_WriteText(buf);
+				_delay_ms(100);
+
+				LCD_GoTo(0,1);
+				sprintf(buf, "Score: %d\0", player_hand.value);
+				_delay_ms(100);
+				LCD_WriteText(buf);
+
+			}else{
+
+				LCD_WriteText(buf);
+				_delay_ms(100);
+
+				gameOver = false;
 			}
-			sprintf(buf + len, " %c", 'A');
-			LCD_WriteText(buf);
-			_delay_ms(100);
-
-			LCD_GoTo(0,1);
-			sprintf(buf, "Score: %d\0", score);
-			_delay_ms(100);
-			LCD_WriteText(buf);
-
 			updateScreen = 0;
 		}
-    
-	}
-}
-
-void showPlayerHand(Card hand[]){
-	for(int i = 0; i < 10 && hand[i].value != 0; ++i){
-		showCardDetails(hand[i]);
 	}
 }
