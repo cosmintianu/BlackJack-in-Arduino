@@ -56,7 +56,3 @@ This project demonstrates the implementation of the card game Blackjack using an
 - **Loss**: 
   - Player loses if they bust (score exceeds 21).
   - Player loses if their hand is lower than the dealer's hand.
-
----
-
-Feel free to copy this into your `README.md` file! Let me know if you'd like any further refinements or additions.
