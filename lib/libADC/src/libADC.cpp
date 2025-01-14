@@ -21,10 +21,11 @@ int  ADC_conversion(void){
 }
 
 int ADC_read_noise(void){
+	// Setting the A6 as the source pin
 	ADMUX |= (1<<MUX2) | (1<<MUX1);
+	// ADSC: bit 6 - ADC - Start Conversion
 	ADCSRA |= (1<<ADSC);
-
-	while(ADCSRA & (1<<ADSC));
+	while(ADCSRA & (1<<ADSC)); //	when the conversion ends ADSC will turn 0
 
 	return ADC;
 
