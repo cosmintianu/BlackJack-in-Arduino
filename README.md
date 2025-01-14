@@ -43,7 +43,7 @@ This project demonstrates the implementation of the card game Blackjack using an
 
 ### Setup
 1. Connect the **D1 Robot LCD Keypad Shield** to the Arduino Uno.
-2. Upload the source code from the GitHub repository.
+2. Upload the source code from the GitHub repository using PlatformIO.
 
 ### Gameplay
 - Use the **LEFT** button to **hit** (draw a card).
